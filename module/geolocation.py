@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from h3 import h3
 from openrouteservice.distance_matrix import distance_matrix
 from shapely.geometry import MultiPoint
+from itertools import chain
 
 
 class analyse:
@@ -114,17 +115,20 @@ class analyse:
         """        
         return [h3.geo_to_h3(row[0], row[1], h3_level) for row in geolocation]
 
-    def __get_polygon(self, hexes):
-        """This method merge multiple hexes into one polygon
+    def __get_centroid(self, hexes):
+        """This method merge multiple hexes into one polygon and return their centroid
 
         Args:
             hexes (h3 hex): list of hexes to merge into one polygon
 
         Returns:
-            list: list of points representing a polygon
+            list: latlong point representing the centroid
         """        
         # This method of merging multiple hexes have a downside, where if hexes aren't immediate neighbor then they will form multiple polygons
-        return h3.h3_set_to_multi_polygon(hexes, geo_json=False) 
+        polygon = h3.h3_set_to_multi_polygon(hexes, geo_json=False)
+        flattned_location_points = list(chain.from_iterable(chain.from_iterable(polygon)))
+        
+        return list(MultiPoint(flattned_location_points).centroid.coords)[0]
 
     def get_cluster(self, user=None, mode="mass"):
         data = (
@@ -137,8 +141,8 @@ class analyse:
         clusters = data["label"].drop_duplicates()
         return {
             clust: {
-                "polygon": self.__get_polygon(
-                    hexagons[data["label"] == clust].drop_duplicates()
+                "centroid": self.__get_centroid(
+                    data.loc[data["label"] == clust, 'hex'].drop_duplicates()
                 ),
                 "timespend": data.loc[data["label"] == clust, "timespend"].sum(),
             }
@@ -148,7 +152,7 @@ class analyse:
 
 def get_path(polygons, destination):
     centroid = [
-        list(MultiPoint(latlongs).centroid.coords)[0][::-1] for latlongs in polygons
+        latlong[::-1] for latlong in polygons
     ]
     destination = [loc[::-1] for loc in destination]
     coordinate = centroid + destination
